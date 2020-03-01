@@ -1,0 +1,69 @@
+#!groovy
+
+pipeline {
+	parameters {
+      string(name: 'aws_primary_region', defaultValue: 'us-east-1', description: 'What is AWS primary region?')
+      string(name: 'aws_secondary_region', defaultValue: 'us-west-2', description: 'What is AWS secondary region?') 
+      string(name: 'function_name', defaultValue: 'java-office', description: 'This is the name of Lambda function')
+      choice(choices: 'create\nupdate\ndelete', description: 'This is the operation you want to perform on lambda function', name: 'function_operation')   
+      choice(choices: 'develop', description: 'Branch', name: 'template_branch')
+      choice(choices: 'develop', description: 'Branch', name: 'java_code_branch')
+      string(name: 'java_code_repository_URL', defaultValue: 'https://msstash.morningstar.com/scm/fp/lambda-data-office-java.git', description: 'Repo URL of java lambda function')
+    }
+	
+    tools { 
+        maven 'Maven 3.5.2'
+        jdk 'SunJDK 8u65'
+    }
+	agent { label 'redhat_linux' }
+	
+	stages {
+       
+      stage('Preparation and build') { 
+	     steps {	    
+          echo "download source code ..." 
+          git branch: '${template_branch}', changelog: false, credentialsId: '8d2dd645-3268-4220-bdae-14d5be0ae0eb', poll: false, url: 'https://msstash.morningstar.com/scm/techstd/template-lambda-java.git'
+          sh "rm -rf template-lambda-java && mkdir template-lambda-java"
+          echo "${M2_HOME}"
+           dir("template-lambda-java"){            
+	         git branch: '${java_code_branch}', changelog: false, credentialsId: '8d2dd645-3268-4220-bdae-14d5be0ae0eb', poll: false, url: '${java_code_repository_URL}'  
+             sh '''	
+                pwd
+                ls -lrt
+                git branch
+                ${M2_HOME}/bin/mvn clean install -DBuild_Number=${BUILD_NUMBER} -DskipTests=true
+            '''
+	       }
+         }
+       }
+                
+      stage('Creating jar per build number') {
+	   steps {
+         // Run the maven build
+         sh '''	
+          bash lambda-deployment/buildProperty/jarPerJenkinsBuild.sh ${function_name} ${BUILD_NUMBER} ${aws_primary_region} ${aws_secondary_region} ${function_operation}
+          ls -lrt template-lambda-java/target
+          rm lambda-CI.zip
+          zip -r lambda-CI.zip template-lambda-java lambda-deployment
+          ls -ltr
+         '''
+         }		
+       }
+       
+       stage('Pushing to uDeploy'){
+        steps {
+          withCredentials([string(credentialsId: 'DS_AUTH_TOKEN', variable: 'DS_AUTH_TOKEN')]) { 
+            sh '''
+            export DS_WEB_URL="https://udeploy.morningstar.com"
+            export DS_AUTH_TOKEN=${DS_AUTH_TOKEN}
+            
+		    version=${BUILD_TIMESTAMP}_${BUILD_NUMBER}
+		    /opt/udclient/udclient createVersion -component FP-PID0484-FinancialPlanning-Lambda-Deploy -name $version
+		    /opt/udclient/udclient addVersionFiles -component FP-PID0484-FinancialPlanning-Lambda-Deploy -version $version -base ${WORKSPACE} -include lambda-CI.zip
+		    rm -rf template-lambda-java
+            '''
+         }  
+        }  
+       } 
+      }
+     }

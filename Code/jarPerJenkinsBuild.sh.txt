@@ -1,0 +1,22 @@
+#!/bin/bash
+
+functionName=$1
+buildNumber=$2
+aws_primary_region=$3
+aws_secondary_region=$4
+function_operation=$5
+
+############ Ensure to enter the root folder of all script
+folderOfCurrentScript="$(dirname "${BASH_SOURCE}")"
+cd ${folderOfCurrentScript}
+currentPath=`pwd`
+
+templateFilePath="parameters.template"
+credentialFilePath="../common/parameters.properties"
+
+functionName=${functionName} \
+buildNumber=${buildNumber} \
+aws_primary_region=${aws_primary_region} \
+aws_secondary_region=${aws_secondary_region} \
+function_operation=${function_operation} \
+envsubst < ${templateFilePath} > ${credentialFilePath}

@@ -1,0 +1,70 @@
+#!/bin/bash
+
+functionName=$1
+targetEnv=$2
+awsRegion=$3
+
+############Make enter the root folder of all script
+folderOfCurrentScript="$(dirname "${BASH_SOURCE}")"
+cd ${folderOfCurrentScript}
+folderOfCurrentScript=`pwd`
+
+cd ../../common
+appName=`grep appName parameters.properties|cut -d'=' -f2`
+handler=`grep handler parameters.properties|cut -d'=' -f2`
+runtime=`grep runtime parameters.properties|cut -d'=' -f2`
+s3Key=`grep s3Key parameters.properties|cut -d'=' -f2`
+jarPath=`grep jarPath parameters.properties|cut -d'=' -f2`
+origins=`grep origins parameters.properties|cut -d'=' -f2`
+
+s3StackName=${appName}-${targetEnv}-${awsRegion}-${functionName}-s3bucket
+s3Bucket=`aws cloudformation --region ${awsRegion} describe-stacks --stack-name ${s3StackName} --query Stacks[0].Outputs[0].OutputValue --output text`
+
+if [ ! -z "${awsRegion}" ]; then
+    export AWS_DEFAULT_REGION=${awsRegion}
+    echo "Use the region ${awsRegion}"
+fi
+
+templateFile=${folderOfCurrentScript}"/lambda.yaml"
+
+#Get ID of needed subnet
+subnetIds=`bash ../vpc/getSubnetIdsByEnv.sh ${targetEnv} ${awsRegion}`
+
+#Get ID of needed security groups
+securityGroups=`bash ../vpc/getSecurityGroups.sh`
+
+parameterFile="${folderOfCurrentScript}/parameters.json"
+echo '[
+    {"ParameterKey":"FunctionName","ParameterValue": "'${functionName}'"},
+    {"ParameterKey":"TargetEnv","ParameterValue": "'${targetEnv}'"},
+    {"ParameterKey":"Handler","ParameterValue": "'${handler}'"},
+    {"ParameterKey":"Runtime","ParameterValue": "'${runtime}'"},
+    {"ParameterKey":"S3Bucket","ParameterValue": "'${s3Bucket}'"},
+    {"ParameterKey":"S3key","ParameterValue": "'${s3Key}'"},
+    {"ParameterKey":"AppName","ParameterValue": "'${appName}'"},
+    {"ParameterKey":"AWSRegion","ParameterValue": "'${awsRegion}'"},
+    {"ParameterKey":"LambdaSubnetIds","ParameterValue": "'${subnetIds}'"},
+    {"ParameterKey":"LambdaSecurityGroups","ParameterValue": "'${securityGroups}'"},
+    {"ParameterKey":"Origins","ParameterValue": "'${origins}'"}
+    ]' | tee ${parameterFile}
+
+
+function packageAndPush {
+    s3FileName=$1
+	cd ../../${jarPath}
+	aws s3 cp ${s3FileName} s3://${s3Bucket}/${s3FileName}
+	cd ${folderOfCurrentScript}
+}
+
+packageAndPush ${s3Key}
+
+cd ${folderOfCurrentScript} 
+cd ../../shared
+  
+bash createOrUpdateStack.sh ${appName}-${targetEnv}-${awsRegion}-${functionName} \
+"${templateFile}" \
+false \
+${parameterFile} \
+${targetEnv}
+
+rm ${parameterFile}

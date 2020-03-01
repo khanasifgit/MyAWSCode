@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+account_id=$1
+role_name=$2
+tmp_credential_file=$3
+
+if [ -z "${account_id}" -o -z "${role_name}" ]; then
+  echo usage:$0: account_id role_name '`mktemp`'
+  exit 1
+fi
+
+[ ! -z "${tmp_credential_file##/tmp/}" ] &&
+  tmp_credential_file="/tmp/${tmp_credential_file##/tmp/}" ||
+  tmp_credential_file=`mktemp`
+
+set +x
+echo "aws sts assume-role and save to ${tmp_credential_file}"
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+
+resp=$(aws sts assume-role  --role-arn "arn:aws:iam::${account_id}:role/${role_name}" --duration-seconds 3600 --role-session-name "$(basename ${PWD})" )
+cat <<EOF > ${tmp_credential_file}
+export AWS_ACCESS_KEY_ID=$(echo $resp | jq -r .Credentials.AccessKeyId )
+export AWS_SECRET_ACCESS_KEY=$(echo $resp | jq -r .Credentials.SecretAccessKey )
+export AWS_SESSION_TOKEN=$(echo $resp | jq -r .Credentials.SessionToken )
+EOF
+
+source "${tmp_credential_file}"

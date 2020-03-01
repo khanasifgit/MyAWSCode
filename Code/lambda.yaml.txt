@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  FunctionName:
+    Default: java-office
+    Type: String
+    Description: A name for the function
+  TargetEnv:
+    Default: dev
+    Type: String
+    Description: Target Environment
+  Handler:
+    Default: com.fp.aws.lambda.LambdaFunctionHandler
+    Type: String
+    Description: The name of the function within your source code
+  Runtime:
+    Default: java8
+    Type: String
+    Description: The runtime environment for the Lambda function that you are uploading.
+  S3Bucket:
+    Default: mstar-fp-js-app-uat-us-east-1-java-office
+    Type: String
+    Description: The S3 bucket name
+  S3key:
+    Default: office-cloud-lambda-0.0.35-SNAPSHOT.jar
+    Type: String
+    Description: The S3 key
+  AppName:
+    Default: mstar-fp-js-app
+    Type: String
+    Description: The app name
+  AWSRegion:
+    Default: us-east-1
+    Type: String
+    Description: AWS region
+  LambdaSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Lambda subnetID
+    Default: subnet-8943d9a5,subnet-8f7f23c7,subnet-8f0a98d5
+  LambdaSecurityGroups:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: lambda security group
+    Default: sg-783c0809
+  Origins:
+    Type: String
+    Description: Environment variable
+    Default: morningstar.com
+    
+Conditions:            
+  CreateNonProdResources: !Not [!Equals [!Ref TargetEnv, prod]]
+  CreateProdResources: !Equals [ !Ref TargetEnv, prod ]    
+
+Resources:
+  lambdaRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Join ["-", [!Ref AppName, !Ref TargetEnv, !Ref AWSRegion, !Ref "FunctionName","role"]]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "sts:AssumeRole"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+                - "apigateway.amazonaws.com"
+                - "logs.amazonaws.com"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+        - "arn:aws:iam::aws:policy/AWSXrayFullAccess"
+      Policies:
+                -
+                    PolicyName: "AllowLambdaToVPC"
+                    PolicyDocument:
+                        Version: "2012-10-17"
+                        Statement:
+                            -
+                                Effect: "Allow"
+                                Action:
+                                     - "ec2:CreateNetworkInterface"
+                                     - "ec2:DescribeNetworkInterfaces"
+                                     - "ec2:DetachNetworkInterface"
+                                     - "ec2:DeleteNetworkInterface"
+                                     - "ssm:GetParameter"
+                                Resource: "*"
+                                
+                -
+                    PolicyName: "CloudwatchToKinesis"
+                    PolicyDocument: 
+                      Version:  "2012-10-17"
+                      Statement:
+                        -
+                          Effect: "Allow"
+                          Action: "kinesis:PutRecord"
+                          Resource: "*"
+                          
+                -   
+                    PolicyName: "ApiGatewayLambdaInvokeAccess"
+                    PolicyDocument: 
+                      Version:  "2012-10-17"
+                      Statement:
+                        -
+                          Effect: "Allow"
+                          Action: "lambda:InvokeFunction"
+                          Resource: "*"
+  fpNonProdLambdaFunction: 
+    Type: "AWS::Lambda::Function"
+    Condition: CreateNonProdResources
+    DependsOn: lambdaRole
+    Properties: 
+      FunctionName: !Join ["-", [!Ref AppName, !Ref TargetEnv, !Ref AWSRegion, !Ref "FunctionName"]]
+      Handler: !Ref Handler
+      Role: !GetAtt lambdaRole.Arn 
+      Code: 
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref S3key
+      Runtime: !Ref Runtime
+      Timeout: "120"
+      MemorySize: "1536"
+      Environment: 
+        Variables:
+          "Environment": !Ref TargetEnv
+          "AWSRegion": !Ref AWSRegion
+          "Origins": !Ref Origins
+      TracingConfig:
+          Mode: "Active"
+      VpcConfig:
+          SecurityGroupIds: !Ref LambdaSecurityGroups
+          SubnetIds: !Ref LambdaSubnetIds 
+      Tags:
+         -
+          Key: "TID"
+          Value: "FP"
+         - 
+          Key: "PID"
+          Value: "PID0484" 
+         -
+          Key: "FUNCTION"
+          Value: "APP" 
+         -
+          Key: "MANAGED"
+          Value: "CloudFormation"
+  fpProdLambdaFunction: 
+    Type: "AWS::Lambda::Function"
+    Condition: CreateProdResources
+    DependsOn: lambdaRole
+    Properties: 
+      FunctionName: !Join ["-", [!Ref AppName, !Ref TargetEnv, !Ref AWSRegion, !Ref "FunctionName"]]
+      Handler: !Ref Handler
+      Role: !GetAtt lambdaRole.Arn 
+      Code: 
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref S3key
+      Runtime: !Ref Runtime
+      Timeout: "120"
+      MemorySize: "1536"
+      Environment: 
+        Variables:
+          "Environment": !Ref TargetEnv
+          "AWSRegion": !Ref AWSRegion
+          "Origins": !Ref Origins
+      TracingConfig:
+          Mode: "Active"
+      Tags:
+         -
+          Key: "TID"
+          Value: "FP"
+         - 
+          Key: "PID"
+          Value: "PID0484" 
+         -
+          Key: "FUNCTION"
+          Value: "APP" 
+         -
+          Key: "MANAGED"
+          Value: "CloudFormation"  
+          
+Description: This stack creates resources for Java lambda function deployment.                

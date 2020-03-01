@@ -1,0 +1,28 @@
+#!/bin/bash
+
+stackName=$1
+
+status=`aws cloudformation describe-stacks --stack-name ${stackName} --query Stacks[0].StackStatus --output text`
+
+if [ -z "${status}" ]; then
+    echo "Failed to create stack"
+    exit 1
+fi
+
+count=0
+while [[ ! ${status} =~ .*COMPLETE.* ]]
+do
+    echo "wait because current status is ${status}"
+    sleep 3s
+    status=`aws cloudformation describe-stacks --stack-name ${stackName} --query Stacks[0].StackStatus --output text`
+    if [ -z "${status}" ]; then
+        break
+    fi
+    let count=count+1
+    if [ ${count} -eq 300 ]; then
+        echo "Timeout...exit"
+        break
+    fi
+done
+
+echo "Stack ${stackName}: ${status}"

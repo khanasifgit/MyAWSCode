@@ -1,0 +1,49 @@
+#!/bin/bash
+
+stackName=$1
+jsonFilePath=$2
+changeIAM=$3
+parametersFile=$4
+tagEnv=$5
+tagSID=$6
+
+############Make enter the root folder of all script
+folderOfCurrentScript="$(dirname "${BASH_SOURCE}")"
+cd ${folderOfCurrentScript}
+
+if [ "true" = "${changeIAM}" ]; then
+    capabilitiesParameter="--capabilities CAPABILITY_NAMED_IAM"
+fi
+
+stackStatus=`aws cloudformation describe-stacks --stack-name ${stackName} --query 'Stacks[0].StackStatus' --output text`
+
+if [ $? -ne 0 ]; then
+    command="create-stack"
+else
+    command="update-stack"
+    if [ "ROLLBACK_COMPLETE" = "${stackStatus}" ] || [ "ROLLBACK_FAILED" = "${stackStatus}" ] || [ "DELETE_FAILED" = "${stackStatus}" ]; then
+        aws cloudformation delete-stack --stack-name ${stackName}
+        bash waitStackIsCompleted.sh ${stackName}
+        command="create-stack"
+    fi
+fi
+
+if [ ! -z "${parametersFile}" ]; then
+    parametersPerFile="--parameters file://${parametersFile}"
+    echo ${parametersPerFile}
+fi
+
+if [ ${tagEnv} = "prod" ] ; then
+    tagEnv="prd"
+fi
+
+if [ -z "${tagSID}" ] ; then
+    tagSID=" "
+fi
+
+
+aws cloudformation ${command} --stack-name ${stackName} --template-body file://${jsonFilePath} ${capabilitiesParameter} ${parametersPerFile} --capabilities CAPABILITY_NAMED_IAM --tags "[{\"Key\": \"ENVIRONMENT\", \"Value\": \"$tagEnv\"}, {\"Key\": \"SERVICEID\", \"Value\": \"$tagSID\"}]"
+
+bash waitStackIsCompleted.sh ${stackName}
+
+# if successfully, the status would be UPDATE_COMPLETE or CREATE_COMPLETE
